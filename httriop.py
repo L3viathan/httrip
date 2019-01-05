@@ -49,8 +49,7 @@ def identity(something):
 
 
 def parse_headers(value):
-    headers_, _, rest = value.partition(b"\r\n\r\n")
-    headers_ = headers_.decode("utf-8").split("\r\n")
+    headers_ = value.decode("utf-8").split("\r\n")
     metaheader = headers_.pop(0)
     method, path, _ = metaheader.split()
     try:
@@ -64,7 +63,7 @@ def parse_headers(value):
         path = 400
         cv_error.set(HTTPError(400, "Headers Corrupt"))
         headers_ = {}
-    return method, path, headers_, rest
+    return method, path, headers_
 
 
 REGISTRY = {}
@@ -107,6 +106,9 @@ def route(method, *paths, input=identity, output=identity):
     return decorator
 
 
+def POST(*args, **kwargs):
+    return route("POST", *args, **kwargs)
+
 def GET(*args, **kwargs):
     return route("GET", *args, **kwargs)
 
@@ -142,13 +144,28 @@ def get_handler(method, path):
     return afn, bindings
 
 
-async def get_bytes(conn):
+async def get_data(conn):
     bytestream = io.BytesIO()
     new = b""
-    while not new.endswith(b"\r\n"):
+    while b"\r\n\r\n" not in new:
         new = await conn.receive_some(1024)
+        print("got", new)
         bytestream.write(new)
-    return bytestream.getvalue()
+    headers, _, rest = bytestream.getvalue().partition(b"\r\n\r\n")
+    method, path, headers = parse_headers(headers)
+    cl = int(headers["Content-Length"])
+    if cl:
+        size = len(rest)
+        bytestream = io.BytesIO()
+        bytestream.write(rest)
+        while size < cl:
+            new = await conn.receive_some(cl-size)
+            print("got", new)
+            bytestream.write(new)
+            size += len(new)
+        rest = bytestream.getvalue()
+
+    return method, path, headers, bytestream.getvalue()
 
 
 def to_bytes(value):
@@ -162,8 +179,7 @@ def to_bytes(value):
 
 async def handler(conn):
     r_ip, r_port, *_ = conn.socket.getpeername()
-    value = await get_bytes(conn)
-    method, path, headers_, data = parse_headers(value)
+    method, path, headers_, data = await get_data(conn)
     afn, bindings = get_handler(method, path)
 
     cv_remote.set((r_ip, r_port))

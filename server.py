@@ -1,5 +1,5 @@
 import json
-from httriop import GET, serve, request, HTTPError
+from httriop import GET, POST, serve, request, HTTPError
 
 
 @GET("/", output=json)
@@ -24,6 +24,11 @@ async def test(x, y):
 @GET(404, 400, 504)
 async def error():
     return f"{request.error.code} {request.error.msg}"
+
+
+@POST("/", input=json, output=json)
+async def posttest():
+    return {"foo": "bar"}
 
 
 if __name__ == "__main__":
