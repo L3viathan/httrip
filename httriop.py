@@ -12,11 +12,12 @@ def parse_headers(value):
     headers, _, rest = value.partition("\r\n\r\n")
     headers = headers.split("\r\n")
     metaheader = headers.pop(0)
+    method, path, _ = metaheader.split()
     headers = {
         key: value
         for key, value in (line.split(": ", maxsplit=1) for line in headers)
     }
-    return metaheader.split()[1], headers, rest
+    return method, path, headers, rest
 
 
 REMOTE = ContextVar("REMOTE")
@@ -25,12 +26,16 @@ HEADERS = ContextVar("HEADERS")
 REGISTRY = {}
 
 
-def request(path, input=identity, output=identity):
+def request(method, path, input=identity, output=identity):
     def decorator(afn):
-        REGISTRY[path] = (afn, input, output)
+        REGISTRY[method, path] = (afn, input, output)
         return afn
+
     return decorator
 
+
+def GET(*args, **kwargs):
+    return request("GET", *args, **kwargs)
 
 
 async def handler(conn):
@@ -41,11 +46,14 @@ async def handler(conn):
         new = await conn.receive_some(1024)
         bytestream.write(new)
     value = bytestream.getvalue().decode("utf-8")
-    path, headers, data = parse_headers(value)
+    method, path, headers, data = parse_headers(value)
     REMOTE.set((r_ip, r_port))
     HEADERS.set(headers)
 
-    afn, input, output = REGISTRY[path]
+    if (method, path) not in REGISTRY:
+        path = 404
+
+    afn, input, output = REGISTRY[method, path]
     result = await afn(input(data))
     await conn.send_all(output(result).encode("utf-8"))
 
