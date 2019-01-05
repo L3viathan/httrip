@@ -3,8 +3,8 @@ import builtins
 import json
 import re
 import http
-from contextvars import ContextVar
 import trio
+from .request import request
 
 
 class HTTPError(Exception):
@@ -15,33 +15,6 @@ class HTTPError(Exception):
             if msg is not None
             else http.HTTPStatus(code).name.replace("_", " ").title()
         )
-
-
-cv_remote = ContextVar("cv_remote")
-cv_headers = ContextVar("cv_headers")
-cv_body = ContextVar("cv_body")
-cv_error = ContextVar("cv_error")
-
-
-class Request:
-    @property
-    def body(self):
-        return cv_body.get()
-
-    @property
-    def headers(self):
-        return cv_headers.get()
-
-    @property
-    def remote(self):
-        return cv_remote.get()
-
-    @property
-    def error(self):
-        return cv_error.get()
-
-
-request = Request()
 
 
 def auto_in(something):
@@ -79,7 +52,7 @@ def parse_headers(value):
         }
     except ValueError:
         path = 400
-        cv_error.set(HTTPError(400, "Headers Corrupt"))
+        request.error = HTTPError(400, "Headers Corrupt")
         headers_ = {}
     return method, path, headers_
 
@@ -100,9 +73,12 @@ def route(method, *paths, input=auto_in, output=auto_out):
                 "To attach it to several paths, give them as additional arguments."
             )
         if input == json:
+
             def input(value):
                 return json.loads(value.decode("utf-8"))
+
         elif input == str:
+
             def input(value):
                 return value.decode("utf-8")
 
@@ -126,6 +102,7 @@ def route(method, *paths, input=auto_in, output=auto_out):
 
 def POST(*args, **kwargs):
     return route("POST", *args, **kwargs)
+
 
 def GET(*args, **kwargs):
     return route("GET", *args, **kwargs)
@@ -153,12 +130,12 @@ def get_handler(method, path):
                 try:
                     value = getattr(builtins, transformation)(value)
                 except Exception:
-                    cv_error.set(HTTPError(400, f"Could Not Convert {name}"))
+                    request.error = HTTPError(400, f"Could Not Convert {name}")
                     break
             bindings[name] = value
         break
     else:
-        cv_error.set(HTTPError(404, "No Matching Route"))
+        request.error = HTTPError(404, "No Matching Route")
     return afn, bindings
 
 
@@ -176,12 +153,12 @@ async def get_data(conn):
         bytestream = io.BytesIO()
         bytestream.write(rest)
         while size < cl:
-            new = await conn.receive_some(cl-size)
+            new = await conn.receive_some(cl - size)
             bytestream.write(new)
             size += len(new)
         rest = bytestream.getvalue()
     elif rest:
-        cv_error.set(HTTPError(411))  # Length Required
+        request.error = HTTPError(411)  # Length Required
 
     return method, path, headers, rest
 
@@ -200,30 +177,30 @@ async def handler(conn):
     method, path, headers_, data = await get_data(conn)
     afn, bindings = get_handler(method, path)
 
-    cv_remote.set((r_ip, r_port))
-    cv_headers.set(headers_)
+    request.remote = (r_ip, r_port)
+    request.headers = headers_
     try:
-        cv_body.set(afn.input(data))
+        request.body = afn.input(data)
     except AttributeError:
         pass  # will be handled later
     except ValueError:
-        cv_error.set(HTTPError(400, "Failed To Convert Input Data"))
+        request.error = HTTPError(400, "Failed To Convert Input Data")
 
     result = ""
     with trio.move_on_after(15):
         try:
-            exc = cv_error.get(None)
+            exc = request.error
             if exc:
                 raise exc
             with trio.fail_after(10):
                 result = afn.output(await afn(**bindings))
         except trio.TooSlowError:
             afn, bindings = REGISTRY["GET", 504]
-            cv_error.set(HTTPError(504, "Task Timed Out"))
+            request.error = HTTPError(504, "Task Timed Out")
             result = afn.output(await afn())
         except HTTPError as e:
             afn, bindings = REGISTRY.get(("GET", e.code), REGISTRY["GET", -1])
-            cv_error.set(e)
+            request.error = e
             result = afn.output(await afn())
     await conn.send_all(to_bytes(result))
 
