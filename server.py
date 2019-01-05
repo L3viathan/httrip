@@ -16,9 +16,7 @@ async def test(x, y):
     return {"result": x + y, "headers": request.headers}
 
 
-@GET(404)
-@GET(400)
-@GET(504)
+@GET(404, 400, 504)
 async def error():
     return f"{request.error.code} {request.error.msg}"
 

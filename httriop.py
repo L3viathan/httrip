@@ -54,7 +54,7 @@ def parse_headers(value):
         }
     except ValueError:
         path = 400
-        cv_error.set(HTTPError(400, "Headers corrupt"))
+        cv_error.set(HTTPError(400, "Headers Corrupt"))
         headers_ = {}
     return method, path, headers_, rest
 
@@ -67,23 +67,30 @@ cv_error = ContextVar("cv_error")
 REGISTRY = {}
 
 
-def route(method, path, input=identity, output=identity):
-    path = path.rstrip("/") if isinstance(path, str) else path
+def route(method, *paths, input=identity, output=identity):
+    paths = [
+        path.rstrip("/") if isinstance(path, str) else path for path in paths
+    ]
 
     def decorator(afn):
-        nonlocal input, output, path
+        nonlocal input, output, paths
+        if hasattr(afn, "input"):
+            raise ValueError(
+                "Handlers can only be decorated once. To attach it to several paths, give them as additional arguments."
+            )
         if input == json:
             input = json.loads
         if output == json:
             output = json.dumps
 
-        if isinstance(path, str):
-            bindings = re.findall("<([^/:]+)(?::([^/:]+))?>", path)
-            path = re.compile(re.sub("<[^>]+>", "([^/]+)", path) + "$")
-        else:
-            bindings = []
+        for path in paths:
+            if isinstance(path, str):
+                bindings = re.findall("<([^/:]+)(?::([^/:]+))?>", path)
+                path = re.compile(re.sub("<[^>]+>", "([^/]+)", path) + "$")
+            else:
+                bindings = []
 
-        REGISTRY[method, path] = (afn, bindings)
+            REGISTRY[method, path] = (afn, bindings)
         afn.output = output
         afn.input = input
         return afn
@@ -95,11 +102,9 @@ def GET(*args, **kwargs):
     return route("GET", *args, **kwargs)
 
 
-@GET(400)
-@GET(404)
-@GET(504)
-async def notfound():
-    return "404 Not Found"
+@GET(400, 404, 504)
+async def error():
+    return f"{request.error.code} {request.error.msg}"
 
 
 def get_handler(method, path):
@@ -119,13 +124,13 @@ def get_handler(method, path):
                 try:
                     value = getattr(builtins, transformation)(value)
                 except Exception as e:
-                    cv_error.set(HTTPError(400, f"Could not convert {name}"))
+                    cv_error.set(HTTPError(400, f"Could Not Convert {name}"))
                     break
             bindings[name] = value
         break
     else:
         # afn, _, input, output = REGISTRY[method, 404]
-        cv_error.set(HTTPError(404, "No matching route"))
+        cv_error.set(HTTPError(404, "No Matching Route"))
     return afn, bindings
 
 
@@ -151,7 +156,7 @@ async def handler(conn):
     except AttributeError:
         pass  # will be handled later
     except ValueError:
-        cv_error.set(HTTPError(400, "Failed to convert input data"))
+        cv_error.set(HTTPError(400, "Failed To Convert Input Data"))
 
     result = ""
     with trio.move_on_after(15):
@@ -163,7 +168,7 @@ async def handler(conn):
                 result = afn.output(await afn(**bindings))
         except trio.TooSlowError:
             afn, bindings = REGISTRY["GET", 504]
-            cv_error.set(HTTPError(504, "Task timed out"))
+            cv_error.set(HTTPError(504, "Task Timed Out"))
             result = afn.output(await afn())
         except HTTPError as e:
             afn, bindings = REGISTRY["GET", e.code]
