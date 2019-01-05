@@ -9,25 +9,31 @@ def identity(something):
 
 
 def parse_headers(value):
-    headers, _, rest = value.partition("\r\n\r\n")
-    headers = headers.split("\r\n")
-    metaheader = headers.pop(0)
+    headers_, _, rest = value.partition("\r\n\r\n")
+    headers_ = headers_.split("\r\n")
+    metaheader = headers_.pop(0)
     method, path, _ = metaheader.split()
-    headers = {
+    headers_ = {
         key: value
-        for key, value in (line.split(": ", maxsplit=1) for line in headers)
+        for key, value in (line.split(": ", maxsplit=1) for line in headers_)
     }
-    return method, path, headers, rest
+    return method, path, headers_, rest
 
 
-REMOTE = ContextVar("REMOTE")
-HEADERS = ContextVar("HEADERS")
+remote = ContextVar("remote")
+headers = ContextVar("headers")
 
 REGISTRY = {}
 
 
 def request(method, path, input=identity, output=identity):
     def decorator(afn):
+        nonlocal input, output
+        if input == json:
+            input = json.loads
+        if output == json:
+            output = json.dumps
+
         REGISTRY[method, path] = (afn, input, output)
         return afn
 
@@ -38,6 +44,15 @@ def GET(*args, **kwargs):
     return request("GET", *args, **kwargs)
 
 
+def get_handler(method, path):
+    if (method, path) not in REGISTRY:
+        path = 404
+
+    # TODO: magical handling of "/foo/<bar:int>" etc
+
+    return REGISTRY[method, path]
+
+
 async def handler(conn):
     bytestream = io.BytesIO()
     r_ip, r_port, *_ = conn.socket.getpeername()
@@ -46,24 +61,13 @@ async def handler(conn):
         new = await conn.receive_some(1024)
         bytestream.write(new)
     value = bytestream.getvalue().decode("utf-8")
-    method, path, headers, data = parse_headers(value)
-    REMOTE.set((r_ip, r_port))
-    HEADERS.set(headers)
+    method, path, headers_, data = parse_headers(value)
+    remote.set((r_ip, r_port))
+    headers.set(headers_)
 
-    if (method, path) not in REGISTRY:
-        path = 404
-
-    afn, input, output = REGISTRY[method, path]
+    afn, input, output = get_handler(method, path)
     result = await afn(input(data))
     await conn.send_all(output(result).encode("utf-8"))
-
-
-def output_json(value):
-    return json.dumps(value)
-
-
-def input_json(value):
-    return json.loads(value)
 
 
 async def main():
