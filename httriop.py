@@ -11,7 +11,9 @@ class HTTPError(Exception):
     def __init__(self, code, msg=None):
         self.code = code
         self.msg = (
-            msg if msg is not None else http.HTTPStatus(code).name.title()
+            msg
+            if msg is not None
+            else http.HTTPStatus(code).name.replace("_", " ").title()
         )
 
 
@@ -47,8 +49,8 @@ def identity(something):
 
 
 def parse_headers(value):
-    headers_, _, rest = value.partition("\r\n\r\n")
-    headers_ = headers_.split("\r\n")
+    headers_, _, rest = value.partition(b"\r\n\r\n")
+    headers_ = headers_.decode("utf-8").split("\r\n")
     metaheader = headers_.pop(0)
     method, path, _ = metaheader.split()
     try:
@@ -81,7 +83,12 @@ def route(method, *paths, input=identity, output=identity):
                 "To attach it to several paths, give them as additional arguments."
             )
         if input == json:
-            input = json.loads
+            def input(value):
+                return json.loads(value.decode("utf-8"))
+        elif input == str:
+            def input(value):
+                return value.decode("utf-8")
+
         if output == json:
             output = json.dumps
 
@@ -131,7 +138,6 @@ def get_handler(method, path):
             bindings[name] = value
         break
     else:
-        # afn, _, input, output = REGISTRY[method, 404]
         cv_error.set(HTTPError(404, "No Matching Route"))
     return afn, bindings
 
@@ -142,7 +148,16 @@ async def get_bytes(conn):
     while not new.endswith(b"\r\n"):
         new = await conn.receive_some(1024)
         bytestream.write(new)
-    return bytestream.getvalue().decode("utf-8")
+    return bytestream.getvalue()
+
+
+def to_bytes(value):
+    if isinstance(value, str):
+        return value.encode("utf-8")
+    elif isinstance(value, bytes):
+        return value
+    else:
+        raise ValueError("Return value must be bytes")
 
 
 async def handler(conn):
@@ -176,7 +191,7 @@ async def handler(conn):
             afn, bindings = REGISTRY["GET", e.code]
             cv_error.set(e)
             result = afn.output(await afn())
-    await conn.send_all(result.encode("utf-8"))
+    await conn.send_all(to_bytes(result))
 
 
 async def main(port):

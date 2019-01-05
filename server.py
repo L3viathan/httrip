@@ -9,6 +9,11 @@ async def root():
     return {"hello": True}
 
 
+@GET("/nope")
+async def nope():
+    raise HTTPError(404)
+
+
 @GET("/add/<x:int>/<y:int>/", output=json)
 async def test(x, y):
     if x % 2 == 0:
