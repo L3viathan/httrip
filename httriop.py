@@ -44,8 +44,22 @@ class Request:
 request = Request()
 
 
-def identity(something):
+def auto_in(something):
+    if not something:
+        return something
+    ct = request.headers.get("Content-Type")
+    if ct == "application/json":
+        return json.loads(something.decode("utf-8"))
+    elif ct.startswith("text/"):
+        return something.decode("utf-8")
     return something
+
+
+def auto_out(something):
+    if isinstance(something, (dict, list)):
+        return json.dumps(something)
+    else:
+        return something
 
 
 def parse_headers(value):
@@ -69,7 +83,7 @@ def parse_headers(value):
 REGISTRY = {}
 
 
-def route(method, *paths, input=identity, output=identity):
+def route(method, *paths, input=auto_in, output=auto_out):
     paths = [
         path.rstrip("/") if isinstance(path, str) else path for path in paths
     ]
@@ -149,23 +163,23 @@ async def get_data(conn):
     new = b""
     while b"\r\n\r\n" not in new:
         new = await conn.receive_some(1024)
-        print("got", new)
         bytestream.write(new)
     headers, _, rest = bytestream.getvalue().partition(b"\r\n\r\n")
     method, path, headers = parse_headers(headers)
-    cl = int(headers["Content-Length"])
+    cl = int(headers.get("Content-Length", 0))
     if cl:
         size = len(rest)
         bytestream = io.BytesIO()
         bytestream.write(rest)
         while size < cl:
             new = await conn.receive_some(cl-size)
-            print("got", new)
             bytestream.write(new)
             size += len(new)
         rest = bytestream.getvalue()
+    elif rest:
+        cv_error.set(HTTPError(411))  # Length Required
 
-    return method, path, headers, bytestream.getvalue()
+    return method, path, headers, rest
 
 
 def to_bytes(value):
