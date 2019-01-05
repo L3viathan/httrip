@@ -58,8 +58,10 @@ def auto_in(something):
 def auto_out(something):
     if isinstance(something, (dict, list)):
         return json.dumps(something)
-    else:
+    elif isinstance(something, (str, bytes)):
         return something
+    else:
+        raise HTTPError(500)
 
 
 def parse_headers(value):

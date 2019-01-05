@@ -1,4 +1,3 @@
-import json
 from httriop import GET, POST, serve, request, HTTPError
 
 
