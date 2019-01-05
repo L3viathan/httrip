@@ -151,10 +151,10 @@ async def handler(conn):
     await conn.send_all(result.encode("utf-8"))
 
 
-async def main():
+async def main(port):
     async with trio.open_nursery() as nursery:
-        nursery.start_soon(trio.serve_tcp, handler, 8080)
+        nursery.start_soon(trio.serve_tcp, handler, port)
 
 
-def serve():
-    trio.run(main)
+def serve(port):
+    trio.run(main, port)

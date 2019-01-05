@@ -11,7 +11,7 @@ async def root():
 
 @GET("/add/<x:int>/<y:int>/", output=json)
 async def test(x, y):
-    return {"result": x + y}
+    return {"result": x + y, "headers": request.headers}
 
 
 @GET(404)
@@ -30,4 +30,4 @@ async def timeout():
 
 
 if __name__ == "__main__":
-    serve()
+    serve(8080)
