@@ -80,16 +80,18 @@ def get_handler(method, path):
     path = path.rstrip("/") if isinstance(path, str) else path
     bindings = {}
     for m, p in REGISTRY:
-        if m != method or isinstance(p, int) or not p.match(path):
+        if m != method or isinstance(p, int):
             continue
-        match = p.findall(path)
+        match = p.match(path)
+        if not match:
+            continue
 
         afn, vars, input, output = REGISTRY[m, p]
-        for value, (name, transformation) in zip(match, vars):
+        for value, (name, transformation) in zip(match.groups(), vars):
             if transformation:
                 try:
                     value = getattr(builtins, transformation)(value)
-                except Exception:
+                except Exception as e:
                     afn, _, input, output = REGISTRY[method, 400]
                     break
             bindings[name] = value
