@@ -15,6 +15,12 @@ class HTTPError(Exception):
         )
 
 
+cv_remote = ContextVar("cv_remote")
+cv_headers = ContextVar("cv_headers")
+cv_body = ContextVar("cv_body")
+cv_error = ContextVar("cv_error")
+
+
 class Request:
     @property
     def body(self):
@@ -59,11 +65,6 @@ def parse_headers(value):
     return method, path, headers_, rest
 
 
-cv_remote = ContextVar("cv_remote")
-cv_headers = ContextVar("cv_headers")
-cv_body = ContextVar("cv_body")
-cv_error = ContextVar("cv_error")
-
 REGISTRY = {}
 
 
@@ -76,7 +77,8 @@ def route(method, *paths, input=identity, output=identity):
         nonlocal input, output, paths
         if hasattr(afn, "input"):
             raise ValueError(
-                "Handlers can only be decorated once. To attach it to several paths, give them as additional arguments."
+                "Handlers can only be decorated once. "
+                "To attach it to several paths, give them as additional arguments."
             )
         if input == json:
             input = json.loads
@@ -118,12 +120,12 @@ def get_handler(method, path):
         if not match:
             continue
 
-        afn, vars = REGISTRY[m, p]
-        for value, (name, transformation) in zip(match.groups(), vars):
+        afn, variables = REGISTRY[m, p]
+        for value, (name, transformation) in zip(match.groups(), variables):
             if transformation:
                 try:
                     value = getattr(builtins, transformation)(value)
-                except Exception as e:
+                except Exception:
                     cv_error.set(HTTPError(400, f"Could Not Convert {name}"))
                     break
             bindings[name] = value
