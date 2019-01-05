@@ -60,6 +60,8 @@ def auto_out(something):
         return json.dumps(something)
     elif isinstance(something, (str, bytes)):
         return something
+    elif something is None:
+        raise HTTPError(204)  # No Content
     else:
         raise HTTPError(500)
 
