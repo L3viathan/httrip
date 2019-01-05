@@ -2,8 +2,17 @@ import io
 import builtins
 import json
 import re
+import http
 from contextvars import ContextVar
 import trio
+
+
+class HTTPError(Exception):
+    def __init__(self, code, msg=None):
+        self.code = code
+        self.msg = (
+            msg if msg is not None else http.HTTPStatus(code).name.title()
+        )
 
 
 class Request:
@@ -18,6 +27,10 @@ class Request:
     @property
     def remote(self):
         return cv_remote.get()
+
+    @property
+    def error(self):
+        return cv_error.get()
 
 
 request = Request()
@@ -39,8 +52,9 @@ def parse_headers(value):
                 line.split(": ", maxsplit=1) for line in headers_
             )
         }
-    except Exception:
+    except ValueError:
         path = 400
+        cv_error.set(HTTPError(400, "Headers corrupt"))
         headers_ = {}
     return method, path, headers_, rest
 
@@ -48,6 +62,7 @@ def parse_headers(value):
 cv_remote = ContextVar("cv_remote")
 cv_headers = ContextVar("cv_headers")
 cv_body = ContextVar("cv_body")
+cv_error = ContextVar("cv_error")
 
 REGISTRY = {}
 
@@ -63,12 +78,14 @@ def route(method, path, input=identity, output=identity):
             output = json.dumps
 
         if isinstance(path, str):
-            vars = re.findall("<([^/:]+)(?::([^/:]+))?>", path)
+            bindings = re.findall("<([^/:]+)(?::([^/:]+))?>", path)
             path = re.compile(re.sub("<[^>]+>", "([^/]+)", path) + "$")
         else:
-            vars = []
+            bindings = []
 
-        REGISTRY[method, path] = (afn, vars, input, output)
+        REGISTRY[method, path] = (afn, bindings)
+        afn.output = output
+        afn.input = input
         return afn
 
     return decorator
@@ -78,23 +95,16 @@ def GET(*args, **kwargs):
     return route("GET", *args, **kwargs)
 
 
-@GET
-async def notfound(_):
+@GET(400)
+@GET(404)
+@GET(504)
+async def notfound():
     return "404 Not Found"
-
-
-@GET
-async def clienterror(_):
-    return "400 Client Error"
-
-
-@GET
-async def timeout(_):
-    return "504 Gateway Timeout"
 
 
 def get_handler(method, path):
     path = path.rstrip("/") if isinstance(path, str) else path
+    afn = None
     bindings = {}
     for m, p in REGISTRY:
         if m != method or isinstance(p, int):
@@ -103,19 +113,20 @@ def get_handler(method, path):
         if not match:
             continue
 
-        afn, vars, input, output = REGISTRY[m, p]
+        afn, vars = REGISTRY[m, p]
         for value, (name, transformation) in zip(match.groups(), vars):
             if transformation:
                 try:
                     value = getattr(builtins, transformation)(value)
                 except Exception as e:
-                    afn, _, input, output = REGISTRY[method, 400]
+                    cv_error.set(HTTPError(400, f"Could not convert {name}"))
                     break
             bindings[name] = value
         break
     else:
-        afn, _, input, output = REGISTRY[method, 404]
-    return afn, bindings, input, output
+        # afn, _, input, output = REGISTRY[method, 404]
+        cv_error.set(HTTPError(404, "No matching route"))
+    return afn, bindings
 
 
 async def get_bytes(conn):
@@ -131,23 +142,33 @@ async def handler(conn):
     r_ip, r_port, *_ = conn.socket.getpeername()
     value = await get_bytes(conn)
     method, path, headers_, data = parse_headers(value)
-    afn, vars, input, output = get_handler(method, path)
+    afn, bindings = get_handler(method, path)
 
     cv_remote.set((r_ip, r_port))
     cv_headers.set(headers_)
     try:
-        cv_body.set(input(data))
-    except Exception:
-        afn, vars, input, output = REGISTRY["GET", 400]
+        cv_body.set(afn.input(data))
+    except AttributeError:
+        pass  # will be handled later
+    except ValueError:
+        cv_error.set(HTTPError(400, "Failed to convert input data"))
 
     result = ""
     with trio.move_on_after(15):
         try:
+            exc = cv_error.get(None)
+            if exc:
+                raise exc
             with trio.fail_after(10):
-                result = output(await afn(**vars))
+                result = afn.output(await afn(**bindings))
         except trio.TooSlowError:
-            afn, vars, input, output = REGISTRY["GET", 504]
-            result = output(await afn())
+            afn, bindings = REGISTRY["GET", 504]
+            cv_error.set(HTTPError(504, "Task timed out"))
+            result = afn.output(await afn())
+        except HTTPError as e:
+            afn, bindings = REGISTRY["GET", e.code]
+            cv_error.set(e)
+            result = afn.output(await afn())
     await conn.send_all(result.encode("utf-8"))
 
 
@@ -157,4 +178,7 @@ async def main(port):
 
 
 def serve(port):
-    trio.run(main, port)
+    try:
+        trio.run(main, port)
+    except KeyboardInterrupt:
+        pass

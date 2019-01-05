@@ -1,5 +1,5 @@
 import json
-from httriop import GET, serve, request
+from httriop import GET, serve, request, HTTPError
 
 
 @GET("/", output=json)
@@ -11,22 +11,16 @@ async def root():
 
 @GET("/add/<x:int>/<y:int>/", output=json)
 async def test(x, y):
+    if x % 2 == 0:
+        raise HTTPError(400, "first argument may not be divisible by 2")
     return {"result": x + y, "headers": request.headers}
 
 
 @GET(404)
-async def notfound():
-    return "404 Not Found!!"
-
-
 @GET(400)
-async def clienterror():
-    return "You dumb!"
-
-
 @GET(504)
-async def timeout():
-    return "too slow!"
+async def error():
+    return f"{request.error.code} {request.error.msg}"
 
 
 if __name__ == "__main__":
