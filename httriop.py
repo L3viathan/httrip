@@ -131,7 +131,7 @@ def GET(*args, **kwargs):
     return route("GET", *args, **kwargs)
 
 
-@GET(400, 404, 504)
+@GET(-1)
 async def error():
     return f"{request.error.code} {request.error.msg}"
 
@@ -222,7 +222,7 @@ async def handler(conn):
             cv_error.set(HTTPError(504, "Task Timed Out"))
             result = afn.output(await afn())
         except HTTPError as e:
-            afn, bindings = REGISTRY["GET", e.code]
+            afn, bindings = REGISTRY.get(("GET", e.code), REGISTRY["GET", -1])
             cv_error.set(e)
             result = afn.output(await afn())
     await conn.send_all(to_bytes(result))
