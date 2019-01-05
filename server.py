@@ -1,36 +1,31 @@
 import json
-from httriop import GET, remote, serve, headers, variables
+from httriop import GET, serve, request
 
 
 @GET("/", output=json)
-async def root(msg):
-    print("received:", repr(msg), "from:", remote.get())
-    print("headers:", headers.get())
+async def root():
+    print("received:", request.body, "from:", request.remote)
+    print("headers:", request.headers)
     return {"hello": True}
 
 
 @GET("/add/<x:int>/<y:int>/", output=json)
-async def test(msg):
-    print("received:", repr(msg), "from:", remote.get())
-    print("headers:", headers.get())
-    bindings = variables.get()
-    x = bindings["x"]
-    y = bindings["y"]
+async def test(x, y):
     return {"result": x + y}
 
 
 @GET(404)
-async def notfound(_):
+async def notfound():
     return "404 Not Found!!"
 
 
 @GET(400)
-async def clienterror(_):
+async def clienterror():
     return "You dumb!"
 
 
 @GET(504)
-async def timeout(_):
+async def timeout():
     return "too slow!"
 
 

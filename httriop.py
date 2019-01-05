@@ -6,6 +6,23 @@ from contextvars import ContextVar
 import trio
 
 
+class Request:
+    @property
+    def body(self):
+        return cv_body.get()
+
+    @property
+    def headers(self):
+        return cv_headers.get()
+
+    @property
+    def remote(self):
+        return cv_remote.get()
+
+
+request = Request()
+
+
 def identity(something):
     return something
 
@@ -28,14 +45,14 @@ def parse_headers(value):
     return method, path, headers_, rest
 
 
-remote = ContextVar("remote")
-headers = ContextVar("headers")
-variables = ContextVar("variables")
+cv_remote = ContextVar("cv_remote")
+cv_headers = ContextVar("cv_headers")
+cv_body = ContextVar("cv_body")
 
 REGISTRY = {}
 
 
-def request(method, path, input=identity, output=identity):
+def route(method, path, input=identity, output=identity):
     path = path.rstrip("/") if isinstance(path, str) else path
 
     def decorator(afn):
@@ -58,7 +75,7 @@ def request(method, path, input=identity, output=identity):
 
 
 def GET(*args, **kwargs):
-    return request("GET", *args, **kwargs)
+    return route("GET", *args, **kwargs)
 
 
 @GET
@@ -95,7 +112,6 @@ def get_handler(method, path):
                     afn, _, input, output = REGISTRY[method, 400]
                     break
             bindings[name] = value
-        variables.set(bindings)
         break
     else:
         afn, _, input, output = REGISTRY[method, 404]
@@ -117,18 +133,21 @@ async def handler(conn):
     method, path, headers_, data = parse_headers(value)
     afn, vars, input, output = get_handler(method, path)
 
-    remote.set((r_ip, r_port))
-    headers.set(headers_)
-    variables.set(vars)
+    cv_remote.set((r_ip, r_port))
+    cv_headers.set(headers_)
+    try:
+        cv_body.set(input(data))
+    except Exception:
+        afn, vars, input, output = REGISTRY["GET", 400]
 
     result = ""
     with trio.move_on_after(15):
         try:
             with trio.fail_after(10):
-                result = output(await afn(input(data)))
+                result = output(await afn(**vars))
         except trio.TooSlowError:
             afn, vars, input, output = REGISTRY["GET", 504]
-            result = output(await afn(input(data)))
+            result = output(await afn())
     await conn.send_all(result.encode("utf-8"))
 
 
