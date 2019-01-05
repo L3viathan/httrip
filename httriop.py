@@ -18,7 +18,9 @@ def parse_headers(value):
     try:
         headers_ = {
             key: value
-            for key, value in (line.split(": ", maxsplit=1) for line in headers_)
+            for key, value in (
+                line.split(": ", maxsplit=1) for line in headers_
+            )
         }
     except Exception:
         path = 400
@@ -35,6 +37,7 @@ REGISTRY = {}
 
 def request(method, path, input=identity, output=identity):
     path = path.rstrip("/") if isinstance(path, str) else path
+
     def decorator(afn):
         nonlocal input, output, path
         if input == json:
@@ -48,9 +51,7 @@ def request(method, path, input=identity, output=identity):
         else:
             vars = []
 
-        REGISTRY[
-            method, path
-        ] = (afn, vars, input, output)
+        REGISTRY[method, path] = (afn, vars, input, output)
         return afn
 
     return decorator
@@ -60,10 +61,25 @@ def GET(*args, **kwargs):
     return request("GET", *args, **kwargs)
 
 
+@GET
+async def notfound(_):
+    return "404 Not Found"
+
+
+@GET
+async def clienterror(_):
+    return "400 Client Error"
+
+
+@GET
+async def timeout(_):
+    return "504 Gateway Timeout"
+
+
 def get_handler(method, path):
     path = path.rstrip("/") if isinstance(path, str) else path
     bindings = {}
-    for m, p  in REGISTRY:
+    for m, p in REGISTRY:
         if m != method or isinstance(p, int) or not p.match(path):
             continue
         match = p.findall(path)
@@ -93,13 +109,11 @@ async def get_bytes(conn):
     return bytestream.getvalue().decode("utf-8")
 
 
-
 async def handler(conn):
     r_ip, r_port, *_ = conn.socket.getpeername()
     value = await get_bytes(conn)
     method, path, headers_, data = parse_headers(value)
     afn, vars, input, output = get_handler(method, path)
-
 
     remote.set((r_ip, r_port))
     headers.set(headers_)
