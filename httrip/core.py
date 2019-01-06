@@ -1,5 +1,5 @@
 import trio
-from .request import request, response
+from .state import request, response
 from .http import get_data, HTTPError
 from .routing import get_handler
 
@@ -44,7 +44,7 @@ async def handler(conn):
     except AttributeError:
         pass  # will be handled later
     except ValueError:
-        request.status = HTTPError(400, "Failed To Convert Input Data")
+        response.status = HTTPError(400, "Failed To Convert Input Data")
 
     result = ""
     with trio.move_on_after(15):

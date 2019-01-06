@@ -1,6 +1,9 @@
 import io
 from contextvars import ContextVar
 
+REGISTRY = {}
+
+
 req_remote = ContextVar("req_remote")
 req_headers = ContextVar("req_headers")
 req_body = ContextVar("req_body")

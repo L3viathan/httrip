@@ -1,6 +1,6 @@
 import io
 import http
-from .request import request
+from .state import response
 
 
 class HTTPError(Exception):
@@ -48,7 +48,7 @@ def parse_headers(value):
         }
     except ValueError:
         path = 400
-        request.error = HTTPError(400, "Headers Corrupt")
+        response.status = HTTPError(400, "Headers Corrupt")
         headers = {}
     return method, path, headers
 
@@ -87,6 +87,6 @@ async def get_data(conn):
             size += len(new)
         rest = bytestream.getvalue()
     elif rest:
-        request.error = HTTPError(411)  # Length Required
+        response.status = HTTPError(411)  # Length Required
 
     return method, path, headers, rest

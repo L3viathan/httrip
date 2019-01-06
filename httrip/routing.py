@@ -2,7 +2,7 @@ import re
 import json
 import builtins
 import urllib
-from .request import request
+from .state import request, REGISTRY
 from .http import HTTPError
 
 
@@ -55,9 +55,6 @@ def auto_out(something):
     else:
         raise HTTPError(500)
 
-
-
-REGISTRY = {}
 
 
 def route(method, *paths, input=auto_in, output=auto_out):
@@ -165,12 +162,12 @@ def get_handler(method, path):
                 try:
                     value = getattr(builtins, transformation)(value)
                 except Exception:
-                    request.error = HTTPError(400, f"Could Not Convert {name}")
+                    response.status = HTTPError(400, f"Could Not Convert {name}")
                     break
             bindings[name] = value
         break
     else:
-        request.error = HTTPError(404, "No Matching Route")
+        response.status = HTTPError(404, "No Matching Route")
     return afn, bindings
 
 
@@ -183,6 +180,6 @@ async def error():
     -1-handlers) override this.
 
     Returns:
-        str: An error message
+        str: The empty string.
     """
-    return f"{request.error.code} {request.error.msg}"
+    return ""
