@@ -1,4 +1,4 @@
-from httrip import GET, POST, serve, request, HTTPError
+from httrip import GET, POST, serve, request, response, HTTPError
 
 
 @GET("/")
@@ -22,7 +22,7 @@ async def test(x, y):
 
 @GET(404, 400, 504)
 async def error():
-    return f"{request.error.code} {request.error.msg}"
+    return f"{response.status.code} {response.status.msg}"
 
 
 @POST("/")

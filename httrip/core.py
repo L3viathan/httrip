@@ -1,5 +1,5 @@
 import trio
-from .request import request
+from .request import request, response
 from .http import get_data, HTTPError
 from .routing import get_handler
 
@@ -44,24 +44,25 @@ async def handler(conn):
     except AttributeError:
         pass  # will be handled later
     except ValueError:
-        request.error = HTTPError(400, "Failed To Convert Input Data")
+        request.status = HTTPError(400, "Failed To Convert Input Data")
 
     result = ""
     with trio.move_on_after(15):
         try:
-            exc = request.error
+            exc = response.status
             if exc:
                 raise exc
             with trio.fail_after(10):
                 result = afn.output(await afn(**bindings))
         except trio.TooSlowError:
             afn, bindings = get_handler("GET", 504)
-            request.error = HTTPError(504, "Task Timed Out")
+            response.status = HTTPError(504, "Task Timed Out")
             result = afn.output(await afn())
         except HTTPError as e:
             afn, bindings = get_handler("GET", e.code)
-            request.error = e
+            response.status = e
             result = afn.output(await afn())
+    await conn.send_all(response.build_headers())
     await conn.send_all(to_bytes(result))
 
 
