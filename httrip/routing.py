@@ -1,6 +1,7 @@
 import re
 import json
 import builtins
+import urllib
 from .request import request
 from .http import HTTPError
 
@@ -23,6 +24,8 @@ def auto_in(something):
     ct = request.headers.get("Content-Type")
     if ct == "application/json":
         return json.loads(something.decode("utf-8"))
+    elif ct == "application/x-www-form-urlencoded":
+        return urllib.parse.parse_qs(something.decode("utf-8"))
     elif ct.startswith("text/"):
         return something.decode("utf-8")
     return something
