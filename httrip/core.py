@@ -1,6 +1,6 @@
 import trio
 from .state import request, response
-from .http import get_data, HTTPError
+from .http import get_data, HTTPError, Headers
 from .routing import get_handler
 
 
@@ -39,6 +39,7 @@ async def handler(conn):
 
     request.remote = (r_ip, r_port)
     request.headers = headers
+    response.headers = Headers()
     try:
         request.body = afn.input(data)
     except AttributeError:

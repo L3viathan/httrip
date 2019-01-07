@@ -20,6 +20,13 @@ class HTTPError(Exception):
         )
 
 
+class Headers(dict):
+    def __getitem__(self, item):
+        return super().__getitem__(item.lower())
+    def __setitem__(self, item, value):
+        super().__setitem__(item.lower(), value)
+
+
 def parse_headers(value):
     """Parse HTTP headers.
 
@@ -40,16 +47,16 @@ def parse_headers(value):
     metaheader = headers.pop(0)
     method, path, _ = metaheader.split()
     try:
-        headers = {
+        headers = Headers({
             key: value
             for key, value in (
                 line.split(": ", maxsplit=1) for line in headers
             )
-        }
+        })
     except ValueError:
         path = 400
         response.status = HTTPError(400, "Headers Corrupt")
-        headers = {}
+        headers = Headers()
     return method, path, headers
 
 

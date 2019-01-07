@@ -2,7 +2,7 @@ import re
 import json
 import builtins
 import urllib
-from .state import request, REGISTRY
+from .state import request, response, REGISTRY
 from .http import HTTPError
 
 
@@ -47,6 +47,7 @@ def auto_out(something):
         HTTPError: A 204 if None was given, a 500 if anything unknown was given.
     """
     if isinstance(something, (dict, list)):
+        response.headers["Content-Type"] = "application/json"
         return json.dumps(something)
     elif isinstance(something, (str, bytes)):
         return something
